@@ -1,0 +1,12 @@
+.venv/
+models/
+.hf/
+.torch/
+.cache/
+tmp/
+data/
+__pycache__/
+*.pyc
+*.safetensors
+*.gguf
+*.onnx

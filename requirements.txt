@@ -1,0 +1,6 @@
+mcp==2.3.0
+sympy==1.14.0
+numpy==2.5.4
+scipy==1.18.1
+mpmath==1.3.0
+antlr4-python3-runtime==4.11.0
