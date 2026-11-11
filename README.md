@@ -26,17 +26,30 @@ run_python  "Fraction(1,3)+Fraction(1,6)"                 -> result "Fraction(1,
 
 - Chaque appel s'exécute dans un sous-processus neuf : limite CPU (= timeout), mémoire 1 Gio
   (`MCPYTHON_MEM_MB`), sortie tronquée à 20 000 caractères.
-- Conteneur lancé sans réseau, en lecture seule, utilisateur non-root, capacités retirées.
+- Conteneur en lecture seule, utilisateur non-root, capacités retirées.
+- En mode HTTP, le conteneur a accès au réseau (nécessaire pour publier le port) : le code
+  Python exécuté peut donc sortir sur le réseau. Le mode stdio avec `--network none` le coupe
+  complètement.
 
-## Construction
+## Lancement — mode HTTP (par défaut, port 8000, endpoint `/mcp`)
 
 ```bash
-docker build -t mcpython:latest .
+docker compose up -d --build
 ```
 
-## Configuration LM Studio
+Le port est publié sur `127.0.0.1:8000` uniquement. Pour l'ouvrir au réseau local, remplacer
+par `"8000:8000"` dans `docker-compose.yml`.
 
-Onglet *Program* → *Install* → *Edit mcp.json* (`~/.lmstudio/mcp.json`) :
+Configuration LM Studio (≥ 0.3.17) : onglet *Program* → *Install* → *Edit mcp.json*
+(`~/.lmstudio/mcp.json`) :
+
+```json
+{ "mcpServers": { "mcpython": { "url": "http://127.0.0.1:8000/mcp" } } }
+```
+
+Utiliser un modèle qui gère le *tool calling* (Qwen3, Mistral Small, gpt-oss, etc.).
+
+## Lancement — mode stdio (LM Studio démarre le conteneur à chaque session, sans réseau)
 
 ```json
 {
@@ -44,7 +57,7 @@ Onglet *Program* → *Install* → *Edit mcp.json* (`~/.lmstudio/mcp.json`) :
     "mcpython": {
       "command": "docker",
       "args": [
-        "run", "-i", "--rm",
+        "run", "-i", "--rm", "-e", "MCP_TRANSPORT=stdio",
         "--network", "none", "--read-only", "--tmpfs", "/tmp",
         "--memory", "1g", "--cpus", "2", "--pids-limit", "64",
         "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
@@ -55,25 +68,13 @@ Onglet *Program* → *Install* → *Edit mcp.json* (`~/.lmstudio/mcp.json`) :
 }
 ```
 
-LM Studio démarre le conteneur à la demande et lui parle en stdio. Utiliser un modèle qui
-gère le *tool calling* (Qwen3, Mistral Small, gpt-oss, etc.).
-
-### Variante HTTP (conteneur permanent)
-
-```bash
-docker run -d --name mcpython -p 127.0.0.1:8000:8000 -e MCP_TRANSPORT=streamable-http mcpython:latest
-```
-
-```json
-{ "mcpServers": { "mcpython": { "url": "http://127.0.0.1:8000/mcp" } } }
-```
-
 ## Test de bout en bout
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install mcp==2.3.0
-.venv/bin/python tests/test_e2e.py
+.venv/bin/python tests/test_e2e.py                                  # stdio, 13 cas
+.venv/bin/python tests/test_e2e.py --http http://127.0.0.1:8000/mcp  # conteneur lancé, 12 cas
 ```
 
-Lance le conteneur comme LM Studio (stdio) et vérifie 13 cas, dont timeout, dépassement
-mémoire et absence de réseau.
+Cas couverts : LaTeX (fractions, intégrale, somme, équations, constantes), Python, erreurs,
+timeout, dépassement mémoire, absence de réseau (stdio uniquement).

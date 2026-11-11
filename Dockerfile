@@ -13,5 +13,8 @@ RUN pip install --no-cache-dir -r requirements.txt \
 COPY src/ src/
 USER calc
 
-# stdio by default (LM Studio spawns the container); set MCP_TRANSPORT=streamable-http for HTTP
+# Streamable HTTP on :8000 (endpoint /mcp) by default; set MCP_TRANSPORT=stdio to let the client spawn it
+ENV MCP_TRANSPORT=streamable-http \
+    MCP_PORT=8000
+EXPOSE 8000
 CMD ["python", "-m", "mcpython.server"]

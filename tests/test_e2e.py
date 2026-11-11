@@ -1,6 +1,8 @@
 """End-to-end test: spawn the container over stdio exactly like LM Studio does and call both tools.
 
-Run from the repo root:  .venv/bin/python tests/test_e2e.py
+Run from the repo root:
+  .venv/bin/python tests/test_e2e.py                               # stdio (docker run -i)
+  .venv/bin/python tests/test_e2e.py --http http://127.0.0.1:8000/mcp   # running container
 """
 
 import asyncio
@@ -9,11 +11,12 @@ import sys
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from mcp.client.streamable_http import streamable_http_client
 
 DOCKER_ARGS = [
     "run", "-i", "--rm", "--network", "none", "--read-only", "--tmpfs", "/tmp",
     "--memory", "1g", "--cpus", "2", "--pids-limit", "64",
-    "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "mcpython:latest",
+    "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "-e", "MCP_TRANSPORT=stdio", "mcpython:latest",
 ]
 
 CASES = [
@@ -36,23 +39,35 @@ CASES = [
 ]
 
 
-async def main() -> int:
-    params = StdioServerParameters(command="docker", args=DOCKER_ARGS)
+async def run_cases(session: ClientSession, cases: list) -> int:
+    await session.initialize()
+    tools = await session.list_tools()
+    print("tools:", [t.name for t in tools.tools])
     failures = 0
-    async with stdio_client(params) as (read, write):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
-            tools = await session.list_tools()
-            print("tools:", [t.name for t in tools.tools])
-            for name, args, check in CASES:
-                res = await session.call_tool(name, args)
-                payload = res.structured_content or json.loads(res.content[0].text)
-                ok = bool(check(payload))
-                failures += not ok
-                print(f"[{'PASS' if ok else 'FAIL'}] {name} {json.dumps(args)[:70]}\n       -> {json.dumps(payload)[:220]}")
-    print(f"{len(CASES) - failures}/{len(CASES)} passed")
+    for name, args, check in cases:
+        res = await session.call_tool(name, args)
+        payload = res.structured_content or json.loads(res.content[0].text)
+        ok = bool(check(payload))
+        failures += not ok
+        print(f"[{'PASS' if ok else 'FAIL'}] {name} {json.dumps(args)[:70]}\n       -> {json.dumps(payload)[:220]}")
+    print(f"{len(cases) - failures}/{len(cases)} passed")
+    return failures
+
+
+async def main(argv: list[str]) -> int:
+    if len(argv) == 2 and argv[0] == "--http":
+        # Network is reachable in HTTP mode (port publishing needs it), so skip the no-network case.
+        cases = [c for c in CASES if "urlopen" not in c[1].get("code", "")]
+        async with streamable_http_client(argv[1]) as (read, write, *_):
+            async with ClientSession(read, write) as session:
+                failures = await run_cases(session, cases)
+    else:
+        params = StdioServerParameters(command="docker", args=DOCKER_ARGS)
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                failures = await run_cases(session, CASES)
     return 1 if failures else 0
 
 
 if __name__ == "__main__":
-    sys.exit(asyncio.run(main()))
+    sys.exit(asyncio.run(main(sys.argv[1:])))

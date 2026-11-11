@@ -76,7 +76,7 @@ def run_python(code: str, timeout: int = DEFAULT_TIMEOUT) -> dict:
 
 
 def main() -> None:
-    transport = os.environ.get("MCP_TRANSPORT", "stdio")
+    transport = os.environ.get("MCP_TRANSPORT", "streamable-http")
     if transport == "stdio":
         mcp.run("stdio")
     else:
